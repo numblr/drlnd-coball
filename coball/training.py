@@ -22,7 +22,7 @@ class PPOLearner():
 
     def __init__(self, env=None,
             episodes_in_epoch=4, ppo_epochs=2, batch_size=32,
-            window_size=25, window_step=2,
+            window_size=32, window_step=2,
             ppo_clip=0.1, sigma=0.05, sigma_decay=0.95, sigma_min=0.1,
             gamma=1.0, gae_tau=0.1, lr=1e-3):
         # Don't instantiate as default as the constructor already starts the unity environment
@@ -90,6 +90,15 @@ class PPOLearner():
 
     def train(self, num_epochs=100):
         for epoch in range(num_epochs):
+            if epoch == 92:
+                self._window_size = 64
+            if epoch == 128:
+                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/5, eps=1e-5)
+                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/5, eps=1e-5)
+            if epoch == 256:
+                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/10, eps=1e-5)
+                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/10, eps=1e-5)
+
             policy = self.get_policy(self._get_sigma(epoch))
 
             episodes = ( self._generate_episode(policy, epoch) for i in range(self._episodes_in_epoch) )
@@ -168,7 +177,7 @@ class PPOLearner():
     def _generate_episode(self, policy, epoch):
         agent = CoBallAgent(policy)
 
-        episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1000, episodic=False, train_mode=True) )
+        episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1024, episodic=False, train_mode=True) )
         episode = ( episode_data for episode_data in zip(*episode) )
 
         # state = tuple of (1,33) arrays, etc.., concat along first dimension
