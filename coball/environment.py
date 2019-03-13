@@ -58,7 +58,6 @@ class CoBallEnv:
             state is terminal or not.
         """
         states = self.reset(train_mode=train_mode)
-        print(states.shape)
         is_terminal = False
         count = 0
 

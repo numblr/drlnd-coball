@@ -21,10 +21,10 @@ class PPOLearner():
     """
 
     def __init__(self, env=None,
-            episodes_in_epoch=4, ppo_epochs=2, batch_size=32,
+            episodes_in_epoch=64, ppo_epochs=2, batch_size=32,
             window_size=25, window_step=2,
             ppo_clip=0.1, sigma=0.05, sigma_decay=0.95, sigma_min=0.1,
-            gamma=1.0, gae_tau=0.1, lr=1e-3):
+            gamma=1.0, gae_tau=0.1, lr=1e-4):
         # Don't instantiate as default as the constructor already starts the unity environment
         self._env = env if env is not None else CoBallEnv()
 
@@ -35,7 +35,7 @@ class PPOLearner():
         self._ppo_epochs = ppo_epochs
         self._batch_size = batch_size
 
-        self._window_size = window_size
+        self._window_size = (32,64,128)
         self._window_step = window_step
 
         self._sigma = sigma
@@ -51,8 +51,8 @@ class PPOLearner():
         self._policy_model = Actor(self._state_size, self._actions).to(device)
         self._value_model = Critic(self._state_size).to(device)
 
-        self._policy_optimizer = optim.Adam(self._policy_model.parameters(), lr, eps=1e-5)
-        self._value_optimizer = optim.Adam(self._value_model.parameters(), lr, eps=1e-5)
+        self._policy_optimizer = optim.Adam(self._policy_model.parameters(), lr, eps=1e-5, weight_decay=0.1, amsgrad=True)
+        self._value_optimizer = optim.Adam(self._value_model.parameters(), lr, eps=1e-5, weight_decay=0.1, amsgrad=True)
 
         self._policy_model.eval()
         self._value_model.eval()
@@ -168,7 +168,7 @@ class PPOLearner():
     def _generate_episode(self, policy, epoch):
         agent = CoBallAgent(policy)
 
-        episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1000, episodic=False, train_mode=True) )
+        episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1000, episodic=True, train_mode=True) )
         episode = ( episode_data for episode_data in zip(*episode) )
 
         # state = tuple of (1,33) arrays, etc.., concat along first dimension
@@ -179,9 +179,13 @@ class PPOLearner():
         assert self._env.get_agent_size() == states.size()[0]
 
         #split episodes
+        window_size = self._window_size[min(epoch//50,len(self._window_size)-1)]
         states, actions, rewards, next_states, is_terminals = [
-                self._split(data, self._window_size)
+                self._split(data, window_size)
                 for data in [states, actions, rewards, next_states, is_terminals] ]
+
+        if states is None:
+            return self._generate_episode(policy, epoch)
 
         positive_rewards = torch.sum(rewards, dim=1).squeeze() > 0.0
         states, actions, rewards, next_states, is_terminals = [
@@ -205,18 +209,24 @@ class PPOLearner():
         return torch.cat(episodes[component], dim=0)
 
     def _split(self, x, split_size):
-        if x.size()[1] % split_size != 0:
-            raise ValueError("Illegal state, episode cannot be split: " + str(x.size()))
+        # if x.size()[1] % split_size != 0:
+        #     raise ValueError("Illegal state, episode cannot be split: " + str(x.size()))
+        if x.size()[1] <= split_size:
+            # print("Illegal state, episode cannot be split: " + str(x.size()))
+            return None
 
         splits = x.size()[1] // split_size
         step = self._window_step
 
-        windows = x.view(splits*x.size()[0], split_size, x.size()[2])
-        shifted_windows = tuple([ x[:,i:-split_size+i,:].contiguous()
-                .view((splits-1)*x.size()[0], split_size, x.size()[2])
-                for i in range(step, split_size, step) ])
+        shifted_windows = tuple([ x[:,i:i+max(1,splits-1+0**i)*split_size,:].contiguous()
+                .view(max(1,splits-1+0**i)*x.size()[0], split_size, x.size()[2])
+                for i in range(0, min(split_size, x.size()[1]-split_size), step) ])
+        # print([ (i,i+max(1,splits-1+0**i)*split_size)
+        #         for i in range(0, min(split_size, x.size()[1]-split_size), step) ])
+        # shifted_windows = tuple([ w.view((splits)*x.size()[0], split_size, x.size()[2])
+        #         for w in shifted_windows ])
 
-        return torch.cat((windows,) + shifted_windows, dim=0)
+        return torch.cat(shifted_windows, dim=0)
 
     def _get_sigma(self, epoch):
         return max(self._sigma_min, self._sigma * self._sigma_decay ** epoch)
