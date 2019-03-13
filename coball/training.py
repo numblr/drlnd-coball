@@ -21,10 +21,10 @@ class PPOLearner():
     """
 
     def __init__(self, env=None,
-            episodes_in_epoch=64, ppo_epochs=2, batch_size=32,
+            episodes_in_epoch=16, ppo_epochs=2, batch_size=32,
             window_size=25, window_step=2,
             ppo_clip=0.1, sigma=0.05, sigma_decay=0.95, sigma_min=0.1,
-            gamma=1.0, gae_tau=0.1, lr=1e-4):
+            gamma=1.0, gae_tau=0.1, lr=1e-3):
         # Don't instantiate as default as the constructor already starts the unity environment
         self._env = env if env is not None else CoBallEnv()
 
@@ -35,7 +35,7 @@ class PPOLearner():
         self._ppo_epochs = ppo_epochs
         self._batch_size = batch_size
 
-        self._window_size = (32,64,128)
+        self._window_size = (32,50,64)
         self._window_step = window_step
 
         self._sigma = sigma
@@ -179,7 +179,7 @@ class PPOLearner():
         assert self._env.get_agent_size() == states.size()[0]
 
         #split episodes
-        window_size = self._window_size[min(epoch//50,len(self._window_size)-1)]
+        window_size = self._window_size[min(epoch//100,len(self._window_size)-1)]
         states, actions, rewards, next_states, is_terminals = [
                 self._split(data, window_size)
                 for data in [states, actions, rewards, next_states, is_terminals] ]

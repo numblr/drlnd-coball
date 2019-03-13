@@ -107,7 +107,7 @@ class Critic(PPOModel):
 class Policy():
     """Policy that provides action probabilities and samples actions accordingly."""
 
-    def __init__(self, model, sigma=0.01, sigma_explore=0.5, epsilon=0.1, cap=[-1.0, 1.0]):
+    def __init__(self, model, sigma=0.05, sigma_explore=0.5, epsilon=0.1, cap=[-1.0, 1.0]):
         """Initialize parameters.
         Params
         ======
