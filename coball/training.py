@@ -35,7 +35,17 @@ class PPOLearner():
         self._ppo_epochs = ppo_epochs
         self._batch_size = batch_size
 
-        self._window_size = (32,50,64,72)
+        self._window_size = 16
+        self._window_sizes = {
+                0: 16,
+                8: 24,
+                64: 32,
+                128: 48,
+                200: 64,
+                300: 72,
+                400: 96
+            }
+
         self._window_step = window_step
 
         self._sigma = sigma
@@ -94,18 +104,17 @@ class PPOLearner():
             policy = self.get_policy(self._get_sigma(epoch))
 
             episodes = ( self._generate_episode(policy, epoch) for i in range(self._episodes_in_epoch) )
+            episodes = ( self._split_episode(e, epoch) for e in episodes )
+            episodes = ( e for e in episodes if e is not None )
             episodes = ( e for e in zip(*episodes) )
 
-            states, actions, rewards, next_states, is_terminals = \
-                    [ torch.cat(component, dim=0).detach() for component in episodes ]
+            episodes = [ torch.cat(component, dim=0).detach() for component in episodes ]
+            if len(episodes) == 0:
+                print("No windows")
+                continue
 
-            returns = self._calculate_returns(rewards).detach()
-            log_probs = policy.log_prob(states, actions).detach()
-            values = self._value_model(states).detach()
-            next_values = self._value_model(next_states).detach()
-
-            td_errors = rewards + self._gamma * next_values - values
-            advantages = self._calculate_advantages(td_errors)
+            states, actions, rewards, next_states, is_terminals, \
+                    returns, log_probs, values, next_values, advantages = episodes
 
             advantages = (advantages - advantages.mean()) / advantages.std()
 
@@ -167,7 +176,7 @@ class PPOLearner():
                 yield policy_loss, self._env.get_score(), ppo_epoch == self._ppo_epochs - 1
 
     def _generate_episode(self, policy, epoch):
-        states, actions, rewards, next_states, is_terminals = (torch.empty((0,)), ) * 5
+        states = torch.empty((0,))
 
         while not states.nelement() > 0:
             agent = CoBallAgent(policy)
@@ -182,20 +191,20 @@ class PPOLearner():
 
             assert self._env.get_agent_size() == states.size()[0]
 
-            #split episodes
-            window_size = self._window_size[min(epoch//100,len(self._window_size)-1)]
-            states, actions, rewards, next_states, is_terminals = [
-                    self._split(data, window_size)
-                    for data in [states, actions, rewards, next_states, is_terminals] ]
-
-            if states is None:
-                states, actions, rewards, next_states, is_terminals = (torch.empty((0,)), ) * 5
-                continue
-
             positive_rewards = torch.sum(rewards, dim=1).squeeze() > 0.0
             states, actions, rewards, next_states, is_terminals = [
                     data[positive_rewards,:,:]
                     for data in [states, actions, rewards, next_states, is_terminals] ]
+            if not states.nelement() > 0:
+                continue
+
+            returns = self._calculate_returns(rewards).detach()
+            log_probs = policy.log_prob(states, actions).detach()
+            values = self._value_model(states).detach()
+            next_values = self._value_model(next_states).detach()
+
+            td_errors = rewards + self._gamma * next_values - values
+            advantages = self._calculate_advantages(td_errors)
 
             # Verify dimensions
             assert states.size()[0] == actions.size()[0] == rewards.size()[0] \
@@ -207,10 +216,19 @@ class PPOLearner():
         print("Generated episode: " + str(states.size()[0]) + "/" + str(len(positive_rewards)) \
                 + " windows (" + str(states.size()[1]) + ")")
 
-        return (states, actions, rewards, next_states, is_terminals)
+        return (states, actions, rewards, next_states, is_terminals,
+                returns, log_probs, values, next_values, advantages)
 
-    def _cat_component(self, episodes, component):
-        return torch.cat(episodes[component], dim=0)
+    def _split_episode(self, episode, epoch):
+        #split episodes
+        if epoch in self._window_sizes:
+            self._window_size = self._window_sizes[epoch]
+            print("Set window size " + str(self._window_size))
+
+        window_size = self._window_size
+        windowed_episode = [ self._split(data, window_size) for data in episode ]
+
+        return windowed_episode if windowed_episode[0] is not None else None
 
     def _split(self, x, split_size):
         # if x.size()[1] % split_size != 0:
@@ -231,6 +249,9 @@ class PPOLearner():
         #         for w in shifted_windows ])
 
         return torch.cat(shifted_windows, dim=0)
+
+    def _cat_component(self, episodes, component):
+        return torch.cat(episodes[component], dim=0)
 
     def _get_sigma(self, epoch):
         return max(self._sigma_min, self._sigma * self._sigma_decay ** epoch)
