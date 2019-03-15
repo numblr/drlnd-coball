@@ -9,7 +9,7 @@ from torch import autograd
 import torch.nn as nn
 import torch.nn.functional as F
 
-from coball.model import Actor, Critic, Policy
+from coball.model import Actor, Critic, Policy, PolicyOU
 from coball.environment import CoBallEnv, CoBallAgent
 
 
@@ -35,7 +35,7 @@ class PPOLearner():
         self._ppo_epochs = ppo_epochs
         self._batch_size = batch_size
 
-        self._window_size = (32,50,64)
+        self._window_size = (32,50,64,72)
         self._window_step = window_step
 
         self._sigma = sigma
@@ -86,7 +86,8 @@ class PPOLearner():
     def get_policy(self, sigma):
         """Return a policy based on the model of the learner.
         """
-        return Policy(self._policy_model, sigma, epsilon=0.25)
+        return PolicyOU(self._policy_model, self._env.get_action_size())
+        # return PolicyOU(self._policy_model, sigma, epsilon=0.25)
 
     def train(self, num_epochs=100):
         for epoch in range(num_epochs):
@@ -166,44 +167,47 @@ class PPOLearner():
                 yield policy_loss, self._env.get_score(), ppo_epoch == self._ppo_epochs - 1
 
     def _generate_episode(self, policy, epoch):
-        agent = CoBallAgent(policy)
+        states, actions, rewards, next_states, is_terminals = (torch.empty((0,)), ) * 5
 
-        episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1000, episodic=True, train_mode=True) )
-        episode = ( episode_data for episode_data in zip(*episode) )
+        while not states.nelement() > 0:
+            agent = CoBallAgent(policy)
 
-        # state = tuple of (1,33) arrays, etc.., concat along first dimension
-        states, actions, rewards, next_states, is_terminals = [
-                torch.stack(tuple(self._to_tensor(step)[0] for step in data), dim=1)
-                for data in episode ]
+            episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1024, episodic=True, train_mode=True) )
+            episode = ( episode_data for episode_data in zip(*episode) )
 
-        assert self._env.get_agent_size() == states.size()[0]
+            # state = tuple of (1,33) arrays, etc.., concat along first dimension
+            states, actions, rewards, next_states, is_terminals = [
+                    torch.stack(tuple(self._to_tensor(step)[0] for step in data), dim=1)
+                    for data in episode ]
 
-        #split episodes
-        window_size = self._window_size[min(epoch//100,len(self._window_size)-1)]
-        states, actions, rewards, next_states, is_terminals = [
-                self._split(data, window_size)
-                for data in [states, actions, rewards, next_states, is_terminals] ]
+            assert self._env.get_agent_size() == states.size()[0]
 
-        if states is None:
-            return self._generate_episode(policy, epoch)
+            #split episodes
+            window_size = self._window_size[min(epoch//100,len(self._window_size)-1)]
+            states, actions, rewards, next_states, is_terminals = [
+                    self._split(data, window_size)
+                    for data in [states, actions, rewards, next_states, is_terminals] ]
 
-        positive_rewards = torch.sum(rewards, dim=1).squeeze() > 0.0
-        states, actions, rewards, next_states, is_terminals = [
-                data[positive_rewards,:,:]
-                for data in [states, actions, rewards, next_states, is_terminals] ]
+            if states is None:
+                states, actions, rewards, next_states, is_terminals = (torch.empty((0,)), ) * 5
+                continue
 
-        # Verify dimensions
-        assert states.size()[0] == actions.size()[0] == rewards.size()[0] \
-                == next_states.size()[0] == is_terminals.size()[0]
-        assert self._env.get_state_size() == states.size()[2] == next_states.size()[2]
-        assert self._env.get_action_size() == actions.size()[2]
-        assert 1 == rewards.size()[2] == is_terminals.size()[2]
+            positive_rewards = torch.sum(rewards, dim=1).squeeze() > 0.0
+            states, actions, rewards, next_states, is_terminals = [
+                    data[positive_rewards,:,:]
+                    for data in [states, actions, rewards, next_states, is_terminals] ]
+
+            # Verify dimensions
+            assert states.size()[0] == actions.size()[0] == rewards.size()[0] \
+                    == next_states.size()[0] == is_terminals.size()[0]
+            assert self._env.get_state_size() == states.size()[2] == next_states.size()[2]
+            assert self._env.get_action_size() == actions.size()[2]
+            assert 1 == rewards.size()[2] == is_terminals.size()[2]
 
         print("Generated episode: " + str(states.size()[0]) + "/" + str(len(positive_rewards)) \
                 + " windows (" + str(states.size()[1]) + ")")
 
-        return (states, actions, rewards, next_states, is_terminals) if states.nelement() > 0 \
-                else self._generate_episode(policy, epoch)
+        return (states, actions, rewards, next_states, is_terminals)
 
     def _cat_component(self, episodes, component):
         return torch.cat(episodes[component], dim=0)
