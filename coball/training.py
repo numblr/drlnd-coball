@@ -92,12 +92,12 @@ class PPOLearner():
 
     def train(self, num_epochs=100):
         for epoch in range(num_epochs):
+            if epoch == 96:
+                self._set_learning_rate(self._lr/2)
             if epoch == 128:
                 self._window_size = 96
-                self._set_learning_rate(min(self._lr, self._current_lr * 10))
             if epoch == 256:
                 self._window_size = 128
-                self._set_learning_rate(min(self._lr, self._current_lr * 10))
 
             policy = self.get_policy(self._get_sigma(epoch))
 
@@ -168,8 +168,7 @@ class PPOLearner():
                             nn.utils.clip_grad_norm_(self._value_model.parameters(), self._grad_clip)
                             self._policy_optimizer.step()
                     except BaseException as e:
-                        self._set_learning_rate(self._current_lr / 1.2)
-                        print("Reset learning rate: " + str(self._current_lr))
+                        pass
 
                 self._value_model.eval()
                 self._policy_model.eval()
