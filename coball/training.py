@@ -1,5 +1,6 @@
 from pprint import pprint
 
+import os
 import math
 import numpy as np
 
@@ -22,7 +23,7 @@ class PPOLearner():
 
     def __init__(self, env=None,
             episodes_in_epoch=8, ppo_epochs=2, batch_size=32,
-            window_size=64, window_step=2,
+            window_size=72, window_step=2,
             ppo_clip=0.1, sigma=0.05, sigma_decay=0.95, sigma_min=0.1,
             gamma=1.0, gae_tau=0.1, lr=1e-3):
         # Don't instantiate as default as the constructor already starts the unity environment
@@ -47,6 +48,7 @@ class PPOLearner():
         self._ppo_clip = ppo_clip
         self._grad_clip = 1
         self._lr = lr
+        self._current_lr = lr
 
         self._policy_model = Actor(self._state_size, self._actions).to(device)
         self._value_model = Critic(self._state_size).to(device)
@@ -61,21 +63,21 @@ class PPOLearner():
         print(self._policy_model)
         print(self._value_model)
 
-    def save(self, path):
+    def save(self, path, dir="results"):
         """Store the learning result.
 
         Store the parameters of the current models to the given path.
         """
-        torch.save(self._policy_model.state_dict(), "actor_" + path)
-        torch.save(self._value_model.state_dict(), "critic_" + path)
+        torch.save(self._policy_model.state_dict(), os.path.join(dir, "actor_" + path))
+        torch.save(self._value_model.state_dict(), os.path.join(dir, "critic_" + path))
 
-    def load(self, path):
+    def load(self, path, dir="results"):
         """Load learning results.
 
         Load the parameters from the given path into the models.
         """
-        self._policy_model.load_state_dict(torch.load("actor_" + path))
-        self._value_model.load_state_dict(torch.load("critic_" + path))
+        self._policy_model.load_state_dict(torch.load(os.path.join(dir, "actor_" + path)))
+        self._value_model.load_state_dict(torch.load(os.path.join(dir, "critic_" + path)))
         self._policy_model.to(device)
 
     def get_agent(self, sigma):
@@ -90,23 +92,12 @@ class PPOLearner():
 
     def train(self, num_epochs=100):
         for epoch in range(num_epochs):
-            if epoch == 92:
-                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/2, eps=1e-5)
-                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/2, eps=1e-5)
             if epoch == 128:
-                self._window_size = 72
-                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr, eps=1e-5)
-                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr, eps=1e-5)
-            if epoch == 196:
-                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/2, eps=1e-5)
-                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/2, eps=1e-5)
-            if epoch == 256:
                 self._window_size = 96
-                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr, eps=1e-5)
-                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr, eps=1e-5)
-            if epoch == 320:
-                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/10, eps=1e-5)
-                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/10, eps=1e-5)
+                self._set_learning_rate(min(self._lr, self._current_lr * 10))
+            if epoch == 256:
+                self._window_size = 128
+                self._set_learning_rate(min(self._lr, self._current_lr * 10))
 
             policy = self.get_policy(self._get_sigma(epoch))
 
@@ -161,7 +152,8 @@ class PPOLearner():
                                     * sampled_advantages.detach()
                             policy_loss = - torch.min(obj, obj_clipped).mean()
                             if policy_loss != -obj.detach().mean():
-                                print("clipped")
+                                # print("clipped")
+                                pass
 
                             new_value = self._value_model(sampled_states.detach())
                             value_loss = 0.5 * (sampled_returns.detach() - new_value).pow(2).mean()
@@ -176,7 +168,8 @@ class PPOLearner():
                             nn.utils.clip_grad_norm_(self._value_model.parameters(), self._grad_clip)
                             self._policy_optimizer.step()
                     except BaseException as e:
-                        print(e)
+                        self._set_learning_rate(self._current_lr / 1.2)
+                        print("Reset learning rate: " + str(self._current_lr))
 
                 self._value_model.eval()
                 self._policy_model.eval()
@@ -238,6 +231,11 @@ class PPOLearner():
 
     def _get_sigma(self, epoch):
         return max(self._sigma_min, self._sigma * self._sigma_decay ** epoch)
+
+    def _set_learning_rate(self, lr):
+        self._current_lr = lr
+        self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._current_lr, eps=1e-5)
+        self._value_optimizer = optim.Adam(self._value_model.parameters(), self._current_lr, eps=1e-5)
 
     def _to_tensor(self, *arrays, dtype=torch.float):
         results = [ torch.tensor(a).to(device, dtype=dtype) if not torch.is_tensor(a) else a

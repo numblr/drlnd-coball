@@ -122,6 +122,7 @@ class CoBallEnv:
 
         self._info = self._env.step(actions)[self._brain_name]
         next_states = self._info.vector_observations
+        # rewards = self._info.rewards
         rewards = [ -1.0 if x < 0 else x for x in self._info.rewards ]
         is_terminals = self._info.local_done
         self._scores += np.array(rewards)

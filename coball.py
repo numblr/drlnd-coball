@@ -9,7 +9,7 @@ from coball.util import print_progress, plot, start_plot, save_plot
 
 PARAMETER_PATH="parameters.pt"
 
-def run_learner(learner, env, result_path, epochs=15, checkpoint_window=20):
+def run_learner(learner, env, result_path, epochs=15, checkpoint_window=100):
     performances = ()
 
     episode_cnt = 0
@@ -23,8 +23,8 @@ def run_learner(learner, env, result_path, epochs=15, checkpoint_window=20):
             episode_cnt += 1
             episode_step = 0
 
-        if terminal and np.mean(env.get_score_history()[-checkpoint_window:]) > max_avg_score:
-            learner.save(result_path)
+        if terminal:
+            learner.save(result_path + "." + str(cnt))
             print("\nSaved checkpoint in epoch " + str(cnt) \
                     + " with avg score: " + str(np.mean(env.get_score_history()[-checkpoint_window:])) + "\n")
             max_avg_score = np.mean(env.get_score_history()[-checkpoint_window:])
