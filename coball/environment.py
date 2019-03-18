@@ -58,7 +58,6 @@ class CoBallEnv:
             state is terminal or not.
         """
         states = self.reset(train_mode=train_mode)
-        print(states.shape)
         is_terminal = False
         count = 0
 
@@ -75,10 +74,14 @@ class CoBallEnv:
                 raise ValueError("Nan from env")
             # print("--- step " + str(count) + " ---")
 
-            yield step_data
+            if np.any(np.isnan(states)):
+                raise ValueError("Nan from env")
 
-        self._score_history += (self.get_score(), )
-        self._scores = None
+            if is_terminal and not episodic:
+                states = self.reset(train_mode=train_mode)
+                is_terminal = False
+
+            yield step_data
 
     def reset(self, train_mode=False):
         """Reset and initiate a new episode in the environment.
@@ -94,7 +97,7 @@ class CoBallEnv:
         #     raise Exception("Env is active, call terminate first")
 
         if self._scores is not None:
-            self._score_history += (np.mean(self._scores))
+            self._score_history += (np.mean(self._scores), )
 
         self._info = self._env.reset(train_mode=train_mode)[self._brain_name]
         self._scores = np.zeros(self.get_agent_size())
@@ -119,7 +122,7 @@ class CoBallEnv:
 
         self._info = self._env.step(actions)[self._brain_name]
         next_states = self._info.vector_observations
-        rewards = self._info.rewards
+        rewards = [ -1.0 if x < 0 else x for x in self._info.rewards ]
         is_terminals = self._info.local_done
         self._scores += np.array(rewards)
 

@@ -21,8 +21,8 @@ class PPOLearner():
     """
 
     def __init__(self, env=None,
-            episodes_in_epoch=4, ppo_epochs=2, batch_size=32,
-            window_size=32, window_step=2,
+            episodes_in_epoch=8, ppo_epochs=2, batch_size=32,
+            window_size=64, window_step=2,
             ppo_clip=0.1, sigma=0.05, sigma_decay=0.95, sigma_min=0.1,
             gamma=1.0, gae_tau=0.1, lr=1e-3):
         # Don't instantiate as default as the constructor already starts the unity environment
@@ -91,10 +91,10 @@ class PPOLearner():
     def train(self, num_epochs=100):
         for epoch in range(num_epochs):
             if epoch == 92:
-                self._window_size = 64
+                self._window_size = 128
             if epoch == 128:
-                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/5, eps=1e-5)
-                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/5, eps=1e-5)
+                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/2, eps=1e-5)
+                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/2, eps=1e-5)
             if epoch == 256:
                 self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/10, eps=1e-5)
                 self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/10, eps=1e-5)
@@ -192,7 +192,7 @@ class PPOLearner():
                 self._split(data, self._window_size)
                 for data in [states, actions, rewards, next_states, is_terminals] ]
 
-        positive_rewards = torch.sum(rewards, dim=1).squeeze() > 0.0
+        positive_rewards = torch.sum(rewards, dim=1).squeeze() > -0.9
         states, actions, rewards, next_states, is_terminals = [
                 data[positive_rewards,:,:]
                 for data in [states, actions, rewards, next_states, is_terminals] ]

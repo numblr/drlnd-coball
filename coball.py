@@ -9,12 +9,12 @@ from coball.util import print_progress, plot, start_plot, save_plot
 
 PARAMETER_PATH="parameters.pt"
 
-def run_learner(learner, env, result_path, epochs=15, checkpoint_window=1):
+def run_learner(learner, env, result_path, epochs=15, checkpoint_window=20):
     performances = ()
 
     episode_cnt = 0
     episode_step = 0
-    max_avg_score = 0.0
+    max_avg_score = -100.0
     for cnt, data in enumerate(learner.train(epochs)):
         episode_step += 1
         performance, score, terminal = data
