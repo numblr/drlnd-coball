@@ -91,11 +91,20 @@ class PPOLearner():
     def train(self, num_epochs=100):
         for epoch in range(num_epochs):
             if epoch == 92:
-                self._window_size = 128
+                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/2, eps=1e-5)
+                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/2, eps=1e-5)
             if epoch == 128:
+                self._window_size = 72
+                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr, eps=1e-5)
+                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr, eps=1e-5)
+            if epoch == 196:
                 self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/2, eps=1e-5)
                 self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/2, eps=1e-5)
             if epoch == 256:
+                self._window_size = 96
+                self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr, eps=1e-5)
+                self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr, eps=1e-5)
+            if epoch == 320:
                 self._policy_optimizer = optim.Adam(self._policy_model.parameters(), self._lr/10, eps=1e-5)
                 self._value_optimizer = optim.Adam(self._value_model.parameters(), self._lr/10, eps=1e-5)
 
@@ -177,7 +186,7 @@ class PPOLearner():
     def _generate_episode(self, policy, epoch):
         agent = CoBallAgent(policy)
 
-        episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1024, episodic=False, train_mode=True) )
+        episode = ( step_data for step_data in self._env.generate_episode(agent, max_steps=1152, episodic=False, train_mode=True) )
         episode = ( episode_data for episode_data in zip(*episode) )
 
         # state = tuple of (1,33) arrays, etc.., concat along first dimension
@@ -192,7 +201,7 @@ class PPOLearner():
                 self._split(data, self._window_size)
                 for data in [states, actions, rewards, next_states, is_terminals] ]
 
-        positive_rewards = torch.sum(rewards, dim=1).squeeze() > -0.9
+        positive_rewards = torch.any(rewards > 0.0, dim=1).squeeze()
         states, actions, rewards, next_states, is_terminals = [
                 data[positive_rewards,:,:]
                 for data in [states, actions, rewards, next_states, is_terminals] ]
