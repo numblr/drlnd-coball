@@ -68,7 +68,7 @@ class PPOLearner():
     def _adapt(self, epoch):
         if epoch == 96:
             self._set_learning_rate(self._lr/2)
-        if epoch == 128:
+        if epoch == 150:
             self._window_size = 96
         if epoch == 256:
             self._window_size = 128
